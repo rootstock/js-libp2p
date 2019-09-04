@@ -250,6 +250,8 @@ class ConnectionManager {
       encrypt = plaintext.encrypt
     }
 
+    this.switch.cryptos = this.switch.cryptos || new Map()
+    this.switch.cryptos.set(tag, encrypt)
     this.switch.crypto = { tag, encrypt }
   }
 

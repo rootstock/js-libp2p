@@ -37,5 +37,6 @@ module.exports.getPeerRelay = promisify((callback) => {
   })
 })
 
+module.exports.isNode = (process && process.versions && process.versions.node)
 module.exports.WS_RENDEZVOUS_MULTIADDR = multiaddr('/ip4/127.0.0.1/tcp/14444/ws')
 module.exports.WRTC_RENDEZVOUS_MULTIADDR = multiaddr('/ip4/127.0.0.1/tcp/15555/ws')

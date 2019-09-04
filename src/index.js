@@ -13,9 +13,11 @@ const series = require('async/series')
 const parallel = require('async/parallel')
 const nextTick = require('async/nextTick')
 
+const PeerId = require('peer-id')
 const PeerBook = require('peer-book')
 const PeerInfo = require('peer-info')
-const Switch = require('./switch')
+const multiaddr = require('multiaddr')
+const Switch = require('./switch-next')
 const Ping = require('./ping')
 const WebSockets = require('libp2p-websockets')
 const ConnectionManager = require('./connection-manager')
@@ -25,7 +27,7 @@ const peerRouting = require('./peer-routing')
 const contentRouting = require('./content-routing')
 const dht = require('./dht')
 const pubsub = require('./pubsub')
-const { getPeerInfoRemote } = require('./get-peer-info')
+const { getPeerInfoRemote, getPeerInfo } = require('./get-peer-info')
 const validateConfig = require('./config').validate
 const { codes } = require('./errors')
 
@@ -243,6 +245,42 @@ class Libp2p extends EventEmitter {
    */
   dial (peer, callback) {
     this.dialProtocol(peer, null, callback)
+  }
+
+  /**
+   * Connects to the target address or peer. If an address is provided,
+   * that address will be dialed first, and the connect will fallback to
+   * other known addresses.
+   * @param {string|Multiaddr|PeerId|PeerInfo} target
+   */
+  async connect (target) {
+    if (typeof target === 'string') target = multiaddr(target)
+    if (multiaddr.isMultiaddr(target)) {
+      try {
+        return await this._switch.dialAddress(target)
+      } catch (err) { log.error(err) }
+    }
+
+    const peer = await getPeerInfoRemote(target, this)
+    return this._switch.dialPeer(peer)
+  }
+
+  /**
+   * Create a new stream to the given `peer` for `protocol`
+   * @param {PeerInfo} peer
+   * @param {string} protocol
+   */
+  async newStream (peer, protocol) {
+    peer = getPeerInfo(peer, this.peerBook)
+    let connection = this.getConnection(peer)
+    if (!connection) {
+      connection = await this.connect(peer)
+    }
+    return connection.newStream(protocol)
+  }
+
+  async getConnection (peer) {
+    return this._switch.getConnection(peer)
   }
 
   /**

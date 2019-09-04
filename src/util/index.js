@@ -30,4 +30,17 @@ function emitFirst (emitter, events, handler) {
   })
 }
 
+function oneSuccess (promises) {
+  return Promise.all(promises.map(p => {
+    return p.then(
+      val => Promise.reject(val),
+      err => Promise.resolve(err)
+    )
+  })).then(
+    errors => Promise.reject(errors),
+    val => Promise.resolve(val)
+  )
+}
+
 module.exports.emitFirst = emitFirst
+module.exports.oneSuccess = oneSuccess
