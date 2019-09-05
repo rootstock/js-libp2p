@@ -2,9 +2,8 @@
 
 const Multiaddr = require('multiaddr')
 const OldSwitch = require('../switch')
-const promisify = require('promisify-es6')
-const mss = require('multistream-select')
 const createFromB58String = require('peer-id').createFromB58String
+const { getUpgrader } = require('./upgrader')
 const debug = require('debug')
 const log = debug('dial')
 log.error = debug('error:dial')
@@ -42,84 +41,12 @@ async function transportDial (transport, address, upgrader) {
   return upgrader(connection)
 }
 
-/**
- * Attempts to encrypt the given `connection` with the provided `cryptos`.
- * The first `Crypto` module to succeed will be used
- * @private
- * @async
- * @param {PeerInfo} localPeer The initiators PeerInfo
- * @param {*} connection
- * @param {Map<string, Crypto>} cryptos
- * @returns {[connection, string]} An encrypted connection and the tag of the `Crypto` used
- */
-async function encrypt (localPeer, connection, cryptos) {
-  const remotePeerId = connection.remotePeerId
-  for (const [tag, encrypt] of cryptos) {
-    // MSS Selection
-    const dialer = new mss.Dialer()
-    await promisify(dialer.handle, { context: dialer })(connection)
-    connection = await promisify(dialer.select, { context: dialer})(tag)
-
-    // Do Crypto
-    const conn = await new Promise((resolve, reject) => {
-      const eConn = encrypt(localPeer.id, connection, remotePeerId, (err) => {
-        if (err) return reject(err)
-        resolve(eConn)
-      })
-    }).catch(log.error)
-
-    if (conn) return [conn, tag]
-  }
-
-  throw new Error('All encryption failed')
-}
-
-/**
- *
- * @private
- * @async
- * @param {*} connection A basic duplex connection to multiplex
- * @param {Map<string, Muxer>} muxers The muxers to attempt multiplexing with
- * @returns {[connection, string]} A muxed connection and the tag of the `Muxer` used
- */
-async function multiplex (connection, muxers) {
-  for (const [tag, muxer] of muxers) {
-    // MSS Selection
-    const dialer = new mss.Dialer()
-    await promisify(dialer.handle, { context: dialer })(connection)
-    connection = await promisify(dialer.select, { context: dialer})(tag)
-
-    return [connection, muxer.dialer(connection)]
-  }
-
-  throw new Error('All muxing failed')
-}
-
-/**
- * @private
- * @param {object} options
- * @param {PeerInfo} options.localPeer
- * @param {Map<string, Crypto>} options.cryptos
- * @param {Map<string, Muxer>} options.muxers
- * @returns {async function(connection)} A connection upgrade function that returns a Libp2p Connection
- */
-function getUpgrader ({ localPeer, cryptos, muxers }) {
-  return async (connection) => {
-    const [eConn, cryptoTag] = await encrypt(localPeer, connection, cryptos)
-    const [muxedConn, muxer] = await multiplex(eConn, muxers)
-
-    // TODO: Create an actual Libp2p Connection
-    return {
-      conn: muxedConn,
-      cryptoTag,
-      muxer
-    }
-  }
-}
-
 class Switch extends OldSwitch {
   constructor (peerInfo, peerBook, options) {
     super(peerInfo, peerBook, options)
+
+    // TODO: maybe track these in a better place, we need to
+    this.connections = new Map()
   }
 
   /**
@@ -136,7 +63,11 @@ class Switch extends OldSwitch {
       muxers: new Map(Object.keys(this.muxers).map(k => [k, this.muxers[k]]))
     })
     const transport = transportForAddress(addr, Object.values(this.transports))
-    return transportDial(transport, addr, upgrader)
+    const conn = await transportDial(transport, addr, upgrader)
+    if (conn) {
+      this.addConnection(conn.remotePeer.id.toB58String(), conn)
+    }
+    return conn
   }
 
   /**
@@ -144,7 +75,8 @@ class Switch extends OldSwitch {
    * The dial to the first address that is successfully able to upgrade a connection
    * will be used.
    *
-   * @param {Multiaddr} addr The address to dial
+   * @param {PeerInfo} peerInfo The address to dial
+   * @returns {Connection}
    */
   async dialPeer (peerInfo) {
     const addrs = peerInfo.multiaddrs.toArray()
@@ -156,6 +88,22 @@ class Switch extends OldSwitch {
     }
 
     throw new Error('Could not dial peer, all addresses failed')
+  }
+
+  /**
+   * @param {string} peerId
+   * @returns {Connection}
+   */
+  getConnection (peerId) {
+    return this.connections.get(peerId)
+  }
+
+  /**
+   * @param {string} peerId
+   * @param {Connection} connection
+   */
+  addConnection (peerId, connection) {
+    this.connections.set(peerId, connection)
   }
 }
 

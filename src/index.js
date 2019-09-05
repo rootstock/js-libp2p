@@ -13,7 +13,6 @@ const series = require('async/series')
 const parallel = require('async/parallel')
 const nextTick = require('async/nextTick')
 
-const PeerId = require('peer-id')
 const PeerBook = require('peer-book')
 const PeerInfo = require('peer-info')
 const multiaddr = require('multiaddr')
@@ -279,7 +278,7 @@ class Libp2p extends EventEmitter {
     return connection.newStream(protocol)
   }
 
-  async getConnection (peer) {
+  getConnection (peer) {
     return this._switch.getConnection(peer)
   }
 

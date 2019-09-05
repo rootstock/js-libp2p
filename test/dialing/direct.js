@@ -11,7 +11,6 @@ const PeerIds = require('../fixtures/peers')
 const createPeerId = promisify(require('peer-id').createFromJSON)
 const PeerInfo = require('peer-info')
 const Libp2p = require('../utils/bundle-nodejs')
-const { getRelayPeer, isNode } = require('../utils/constants')
 
 describe('direct dialing', () => {
   let libp2p
@@ -30,8 +29,8 @@ describe('direct dialing', () => {
     peerInfo2.multiaddrs.add('/ip4/0.0.0.0/tcp/0')
     peerInfo2.multiaddrs.add('/ip4/0.0.0.0/tcp/0/ws')
 
-    libp2p = new Libp2p({ peerInfo: peerInfo1, config: { peerDiscovery: { autoDial: false }} })
-    remoteLibp2p = new Libp2p({ peerInfo: peerInfo2, config: { peerDiscovery: { autoDial: false }} })
+    libp2p = new Libp2p({ peerInfo: peerInfo1, config: { peerDiscovery: { autoDial: false } } })
+    remoteLibp2p = new Libp2p({ peerInfo: peerInfo2, config: { peerDiscovery: { autoDial: false } } })
   })
 
   before('start nodes', async () => {
