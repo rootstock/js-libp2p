@@ -17,6 +17,7 @@ const Observer = require('./observer')
 const Stats = require('./stats')
 const assert = require('assert')
 const Errors = require('./errors')
+const once = require('once')
 const debug = require('debug')
 const log = debug('libp2p:switch')
 log.error = debug('libp2p:switch:error')
@@ -49,7 +50,7 @@ class Switch extends EventEmitter {
     this.protocols = {}
 
     // { muxerCodec: <muxer> } e.g { '/spdy/0.3.1': spdy }
-    this.muxers = {}
+    this.muxers = new Map()
 
     // is the Identify protocol enabled?
     this.identify = false
@@ -253,10 +254,17 @@ class Switch extends EventEmitter {
       (cb) => {
         each(this.transports, (transport, cb) => {
           each(transport.listeners, (listener, cb) => {
-            listener.close((err) => {
+            const done = once(cb)
+            const promise = listener.close((err) => {
               if (err) log.error(err)
-              cb()
+              done()
             })
+            if (promise) {
+              (async () => {
+                await promise
+                done()
+              })()
+            }
           }, cb)
         }, cb)
       },

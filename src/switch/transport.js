@@ -149,7 +149,7 @@ class TransportManager {
         const listener = transport.createListener(handler)
         listener.once('error', done)
 
-        listener.listen(ma, (err) => {
+        const promise = listener.listen(ma, (err) => {
           if (err) {
             return done(err)
           }
@@ -163,6 +163,17 @@ class TransportManager {
             done()
           })
         })
+
+        // Handle async/await transports
+        if (promise) {
+          (async () => {
+            await promise
+            const addrs = await listener.getAddrs()
+            freshMultiaddrs = freshMultiaddrs.concat(addrs)
+            transport.listeners.push(listener)
+            done()
+          })()
+        }
       }
     })
 
@@ -192,8 +203,14 @@ class TransportManager {
     }
 
     parallel(transport.listeners.map((listener) => {
-      return (cb) => {
-        listener.close(cb)
+      return async (cb) => {
+        const promise = listener.close(cb)
+
+        // Handle async transports
+        if (promise) {
+          await promise
+          cb()
+        }
       }
     }), callback)
   }

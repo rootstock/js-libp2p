@@ -149,91 +149,92 @@ class ConnectionManager {
    */
   addStreamMuxer (muxer) {
     // for dialing
-    this.switch.muxers[muxer.multicodec] = muxer
+    this.switch.muxers.set(muxer.multicodec, muxer)
 
     // for listening
-    this.switch.handle(muxer.multicodec, (protocol, conn) => {
-      const muxedConn = muxer.listener(conn)
 
-      muxedConn.on('stream', this.switch.protocolMuxer(null))
+    // this.switch.handle(muxer.multicodec, (protocol, conn) => {
+    //   const muxedConn = muxer.listener(conn)
 
-      // If identify is enabled
-      //   1. overload getPeerInfo
-      //   2. call getPeerInfo
-      //   3. add this conn to the pool
-      if (this.switch.identify) {
-        // Get the peer info from the crypto exchange
-        conn.getPeerInfo((err, cryptoPI) => {
-          if (err || !cryptoPI) {
-            log('crypto peerInfo wasnt found')
-          }
+    //   muxedConn.on('stream', this.switch.protocolMuxer(null))
 
-          // overload peerInfo to use Identify instead
-          conn.getPeerInfo = async (callback) => {
-            const conn = muxedConn.newStream()
-            const ms = new multistream.Dialer()
-            callback = once(callback)
+    //   // If identify is enabled
+    //   //   1. overload getPeerInfo
+    //   //   2. call getPeerInfo
+    //   //   3. add this conn to the pool
+    //   if (this.switch.identify) {
+    //     // Get the peer info from the crypto exchange
+    //     conn.getPeerInfo((err, cryptoPI) => {
+    //       if (err || !cryptoPI) {
+    //         log('crypto peerInfo wasnt found')
+    //       }
 
-            let results
-            try {
-              await msHandle(ms, conn)
-              const msConn = await msSelect(ms, identify.multicodec)
-              results = await identifyDialer(msConn, cryptoPI)
-            } catch (err) {
-              return muxedConn.end(() => {
-                callback(err, null)
-              })
-            }
+    //       // overload peerInfo to use Identify instead
+    //       conn.getPeerInfo = async (callback) => {
+    //         const conn = muxedConn.newStream()
+    //         const ms = new multistream.Dialer()
+    //         callback = once(callback)
 
-            const { peerInfo } = results
+    //         let results
+    //         try {
+    //           await msHandle(ms, conn)
+    //           const msConn = await msSelect(ms, identify.multicodec)
+    //           results = await identifyDialer(msConn, cryptoPI)
+    //         } catch (err) {
+    //           return muxedConn.end(() => {
+    //             callback(err, null)
+    //           })
+    //         }
 
-            if (peerInfo) {
-              conn.setPeerInfo(peerInfo)
-            }
-            callback(null, peerInfo)
-          }
+    //         const { peerInfo } = results
 
-          conn.getPeerInfo((err, peerInfo) => {
-            /* eslint no-warning-comments: off */
-            if (err) {
-              return log('identify not successful')
-            }
-            const b58Str = peerInfo.id.toB58String()
-            peerInfo = this.switch._peerBook.put(peerInfo)
+    //         if (peerInfo) {
+    //           conn.setPeerInfo(peerInfo)
+    //         }
+    //         callback(null, peerInfo)
+    //       }
 
-            const connection = new ConnectionFSM({
-              _switch: this.switch,
-              peerInfo,
-              muxer: muxedConn,
-              conn: conn,
-              type: 'inc'
-            })
-            this.switch.connection.add(connection)
+    //       conn.getPeerInfo((err, peerInfo) => {
+    //         /* eslint no-warning-comments: off */
+    //         if (err) {
+    //           return log('identify not successful')
+    //         }
+    //         const b58Str = peerInfo.id.toB58String()
+    //         peerInfo = this.switch._peerBook.put(peerInfo)
 
-            // Only update if it's not already connected
-            if (!peerInfo.isConnected()) {
-              if (peerInfo.multiaddrs.size > 0) {
-                // with incomming conn and through identify, going to pick one
-                // of the available multiaddrs from the other peer as the one
-                // I'm connected to as we really can't be sure at the moment
-                // TODO add this consideration to the connection abstraction!
-                peerInfo.connect(peerInfo.multiaddrs.toArray()[0])
-              } else {
-                // for the case of websockets in the browser, where peers have
-                // no addr, use just their IPFS id
-                peerInfo.connect(`/ipfs/${b58Str}`)
-              }
-            }
+    //         const connection = new ConnectionFSM({
+    //           _switch: this.switch,
+    //           peerInfo,
+    //           muxer: muxedConn,
+    //           conn: conn,
+    //           type: 'inc'
+    //         })
+    //         this.switch.connection.add(connection)
 
-            muxedConn.once('close', () => {
-              connection.close()
-            })
-          })
-        })
-      }
+    //         // Only update if it's not already connected
+    //         if (!peerInfo.isConnected()) {
+    //           if (peerInfo.multiaddrs.size > 0) {
+    //             // with incomming conn and through identify, going to pick one
+    //             // of the available multiaddrs from the other peer as the one
+    //             // I'm connected to as we really can't be sure at the moment
+    //             // TODO add this consideration to the connection abstraction!
+    //             peerInfo.connect(peerInfo.multiaddrs.toArray()[0])
+    //           } else {
+    //             // for the case of websockets in the browser, where peers have
+    //             // no addr, use just their IPFS id
+    //             peerInfo.connect(`/ipfs/${b58Str}`)
+    //           }
+    //         }
 
-      return conn
-    })
+    //         muxedConn.once('close', () => {
+    //           connection.close()
+    //         })
+    //       })
+    //     })
+    //   }
+
+    //   return conn
+    // })
   }
 
   /**
@@ -244,15 +245,15 @@ class ConnectionManager {
    * @param {function(PeerID, Connection, PeerId, Callback)} encrypt
    * @returns {void}
    */
-  crypto (tag, encrypt) {
-    if (!tag && !encrypt) {
+  crypto (tag, crypto) {
+    if (!tag && !crypto) {
       tag = plaintext.tag
       encrypt = plaintext.encrypt
     }
 
     this.switch.cryptos = this.switch.cryptos || new Map()
-    this.switch.cryptos.set(tag, encrypt)
-    this.switch.crypto = { tag, encrypt }
+    this.switch.cryptos.set(tag, crypto)
+    this.switch.crypto = { tag, crypto }
   }
 
   /**

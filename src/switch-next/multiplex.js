@@ -1,7 +1,9 @@
 'use strict'
 
-const promisify = require('promisify-es6')
-const mss = require('multistream-select')
+const MSS = require('it-multistream-select')
+const debug = require('debug')
+const log = debug('dial')
+log.error = debug('error:dial')
 
 /**
  *
@@ -9,19 +11,42 @@ const mss = require('multistream-select')
  * @async
  * @param {*} connection A basic duplex connection to multiplex
  * @param {Map<string, Muxer>} muxers The muxers to attempt multiplexing with
- * @returns {[connection, string]} A muxed connection and the tag of the `Muxer` used
+ * @returns {MuxedConnection} A muxed connection
  */
-async function multiplex (connection, muxers) {
-  for (const [tag, muxer] of muxers) {
-    // MSS Selection
-    const dialer = new mss.Dialer()
-    await promisify(dialer.handle, { context: dialer })(connection)
-    connection = await promisify(dialer.select, { context: dialer })(tag)
+async function multiplexOutbound (connection, muxers) {
+  const dialer = new MSS.Dialer(connection)
+  const protocols = Array.from(muxers.keys())
+  log('outbound selecting muxer %s', protocols)
+  const { stream, protocol } = await dialer.select(protocols)
+  log('%s selected as muxer protocol', protocol)
+  const muxer = muxers.get(protocol)
 
-    return [connection, muxer.dialer(connection)]
-  }
+  if (stream) return stream
 
   throw new Error('All muxing failed')
 }
 
-module.exports = multiplex
+/**
+ *
+ * @private
+ * @async
+ * @param {*} connection A basic duplex connection to multiplex
+ * @param {Map<string, Muxer>} muxers The muxers to attempt multiplexing with
+ * @returns {MuxedConnection} A muxed connection
+ */
+async function multiplexInbound (connection, muxers) {
+  const listener = new MSS.Listener(connection)
+  const protocols = Array.from(muxers.keys())
+  log('inbound handling muxers %s', protocols)
+  const { stream, protocol } = await listener.handle(protocols)
+  const muxer = muxers.get(protocol)
+
+  if (stream) return stream
+
+  throw new Error('All muxing failed')
+}
+
+module.exports = {
+  multiplexInbound,
+  multiplexOutbound
+}

@@ -102,7 +102,7 @@ class Libp2p extends EventEmitter {
     if (this._modules.connEncryption) {
       const cryptos = this._modules.connEncryption
       cryptos.forEach((crypto) => {
-        this._switch.connection.crypto(crypto.tag, crypto.encrypt)
+        this._switch.connection.crypto(crypto.tag, crypto)
       })
     }
 
@@ -253,11 +253,15 @@ class Libp2p extends EventEmitter {
    * @param {string|Multiaddr|PeerId|PeerInfo} target
    */
   async connect (target) {
+    log('starting connection to %s', target)
     if (typeof target === 'string') target = multiaddr(target)
     if (multiaddr.isMultiaddr(target)) {
       try {
         return await this._switch.dialAddress(target)
-      } catch (err) { log.error(err) }
+      } catch (err) {
+        log.error(err)
+        throw err
+      }
     }
 
     const peer = await getPeerInfoRemote(target, this)
@@ -379,37 +383,16 @@ class Libp2p extends EventEmitter {
       return this.state('abort')
     }
 
-    let ws
-
-    // so that we can have webrtc-star addrs without adding manually the id
-    const maOld = []
-    const maNew = []
-    this.peerInfo.multiaddrs.toArray().forEach((ma) => {
-      if (!ma.getPeerId()) {
-        maOld.push(ma)
-        maNew.push(ma.encapsulate('/p2p/' + this.peerInfo.id.toB58String()))
-      }
-    })
-    this.peerInfo.multiaddrs.replace(maOld, maNew)
-
-    const multiaddrs = this.peerInfo.multiaddrs.toArray()
-
     this._modules.transport.forEach((Transport) => {
       let t
 
       if (typeof Transport === 'function') {
-        t = new Transport({ libp2p: this })
+        t = new Transport({ libp2p: this, upgrader: this._switch.getUpgrader() })
       } else {
         t = Transport
       }
 
-      if (t.filter(multiaddrs).length > 0) {
-        this._switch.transport.add(t.tag || t[Symbol.toStringTag], t)
-      } else if (WebSockets.isWebSockets(t)) {
-        // TODO find a cleaner way to signal that a transport is always used
-        // for dialing, even if no listener
-        ws = t
-      }
+      this._switch.transport.add(t.tag || t[Symbol.toStringTag], t)
       this._transport.push(t)
     })
 
@@ -419,11 +402,6 @@ class Libp2p extends EventEmitter {
         this._switch.start(cb)
       },
       (cb) => {
-        if (ws) {
-          // always add dialing on websockets
-          this._switch.transport.add(ws.tag || ws.constructor.name, ws)
-        }
-
         // detect which multiaddrs we don't have a transport for and remove them
         const multiaddrs = this.peerInfo.multiaddrs.toArray()
 

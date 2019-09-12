@@ -2,7 +2,6 @@
 
 const Multiaddr = require('multiaddr')
 const OldSwitch = require('../switch')
-const createFromB58String = require('peer-id').createFromB58String
 const { getUpgrader } = require('./upgrader')
 const debug = require('debug')
 const log = debug('dial')
@@ -25,20 +24,17 @@ function transportForAddress (address, transports) {
  * @async
  * @param {*} transport
  * @param {Multiaddr} address
- * @param {function(connection)} upgrader A function that upgrades a basic connection to a Libp2p Connection
  * @returns {Connection} A Libp2p Connection
  */
-async function transportDial (transport, address, upgrader) {
-  const connection = await new Promise((resolve, reject) => {
-    const conn = transport.dial(address, {}, (err) => {
-      if (err) return reject(err)
-      resolve(conn)
-    })
-  })
+async function transportDial (transport, address) {
+  // TODO: Add abort controller
+  return transport.dial(address, {})
+}
 
-  connection.remotePeerId = createFromB58String(address.getPeerId())
-
-  return upgrader(connection)
+function inboundConnectionHandler (key) {
+  return (connection) => {
+    console.log('Incoming Connection on %s:', key, connection)
+  }
 }
 
 class Switch extends OldSwitch {
@@ -47,6 +43,7 @@ class Switch extends OldSwitch {
 
     // TODO: maybe track these in a better place, we need to
     this.connections = new Map()
+    this._connectionHandler = inboundConnectionHandler
   }
 
   /**
@@ -57,13 +54,12 @@ class Switch extends OldSwitch {
    */
   async dialAddress (addr) {
     addr = Multiaddr(addr)
-    const upgrader = getUpgrader({
-      localPeer: this._peerInfo,
-      cryptos: this.cryptos,
-      muxers: new Map(Object.keys(this.muxers).map(k => [k, this.muxers[k]]))
-    })
     const transport = transportForAddress(addr, Object.values(this.transports))
-    const conn = await transportDial(transport, addr, upgrader)
+    if (!transport) {
+      log.error('no valid transport for %s', addr)
+      throw new Error('No transport available for address')
+    }
+    const conn = await transportDial(transport, addr)
     if (conn) {
       this.addConnection(conn.remotePeer.id.toB58String(), conn)
     }
@@ -88,6 +84,19 @@ class Switch extends OldSwitch {
     }
 
     throw new Error('Could not dial peer, all addresses failed')
+  }
+
+  /**
+   * @returns {Upgrader}
+   */
+  getUpgrader () {
+    // TODO: Make it so the upgrader can be modified later
+    // This would enable users to manage how connections are upgraded
+    return getUpgrader({
+      localPeer: this._peerInfo,
+      cryptos: this.cryptos,
+      muxers: this.muxers
+    })
   }
 
   /**
