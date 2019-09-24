@@ -7,4 +7,5 @@ describe('Dialing', () => {
   if (isNode) {
     require('./direct') // direct dials
   }
+  require('./queue') // dialing queue
 })

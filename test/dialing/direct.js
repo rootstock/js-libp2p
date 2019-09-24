@@ -6,11 +6,11 @@ chai.use(require('dirty-chai'))
 const expect = chai.expect
 const sinon = require('sinon')
 
-const promisify = require('promisify-es6')
 const PeerIds = require('../fixtures/peers')
-const createPeerId = promisify(require('peer-id').createFromJSON)
+const createPeerId = require('peer-id').createFromJSON
 const PeerInfo = require('peer-info')
-const Libp2p = require('../utils/bundle-nodejs')
+const Libp2p = require('./bundle-node')
+const pipe = require('it-pipe')
 
 describe('direct dialing', () => {
   let libp2p
@@ -23,11 +23,11 @@ describe('direct dialing', () => {
     ])
 
     const peerInfo1 = new PeerInfo(peerId1)
-    peerInfo1.multiaddrs.add('/ip4/0.0.0.0/tcp/0')
-    peerInfo1.multiaddrs.add('/ip4/0.0.0.0/tcp/0/ws')
+    peerInfo1.multiaddrs.add('/ip4/0.0.0.0/tcp/8080')
+    // peerInfo1.multiaddrs.add('/ip4/0.0.0.0/tcp/0/ws')
     const peerInfo2 = new PeerInfo(peerId2)
-    peerInfo2.multiaddrs.add('/ip4/0.0.0.0/tcp/0')
-    peerInfo2.multiaddrs.add('/ip4/0.0.0.0/tcp/0/ws')
+    peerInfo2.multiaddrs.add('/ip4/0.0.0.0/tcp/10000')
+    // peerInfo2.multiaddrs.add('/ip4/0.0.0.0/tcp/0/ws')
 
     libp2p = new Libp2p({ peerInfo: peerInfo1, config: { peerDiscovery: { autoDial: false } } })
     remoteLibp2p = new Libp2p({ peerInfo: peerInfo2, config: { peerDiscovery: { autoDial: false } } })
@@ -53,13 +53,30 @@ describe('direct dialing', () => {
   })
 
   describe('multiaddrs', () => {
-    it('should dial the provided multiaddr first', async () => {
+    it.only('should dial the provided multiaddr first', async () => {
       const spy = sinon.spy(libp2p._switch, 'dialAddress')
 
       const addr = remoteLibp2p.peerInfo.multiaddrs.toArray().pop()
-      await libp2p.connect(String(addr))
+      const addrWithId = `${addr.toString()}/p2p/${remoteLibp2p.peerInfo.id.toB58String()}`
+      const connection = await libp2p.connect(addrWithId)
+      expect(connection).to.exist()
       expect(spy.callCount).to.eql(1)
-      expect(spy.getCall(0).args[0]).to.eql(addr)
+      expect(spy.getCall(0).args[0].toString()).to.eql(addrWithId)
+
+      const { stream, protocol } = await connection.newStream('/echo/1.0.0')
+      const data = await pipe(
+        [Buffer.from('hi')],
+        stream,
+        async source => {
+          let data = []
+          for await (const chunk of source) {
+            data.push(chunk.slice())
+          }
+          return data
+        }
+      )
+
+      expect(data[0]).to.eql(Buffer.from('hi'))
     })
 
     it('should fallback to other known multiaddrs if the given multiaddr fails', async () => {

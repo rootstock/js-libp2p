@@ -13,7 +13,7 @@ class Node extends libp2p {
       modules: {
         transport: [TCP],
         streamMuxer: [MPLEX],
-        connEncryption: [Secio],
+        connEncryption: [Plaintext],
         peerDiscovery: []
       },
       config: {
@@ -26,6 +26,9 @@ class Node extends libp2p {
             enabled: false,
             active: false
           }
+        },
+        dht: {
+          enabled: false
         }
       }
     }

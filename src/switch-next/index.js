@@ -33,7 +33,7 @@ async function transportDial (transport, address) {
 
 function inboundConnectionHandler (key) {
   return (connection) => {
-    console.log('Incoming Connection on %s:', key, connection)
+    console.log('Incoming Connection (%s) on %s', connection.id, key)
   }
 }
 
@@ -61,7 +61,7 @@ class Switch extends OldSwitch {
     }
     const conn = await transportDial(transport, addr)
     if (conn) {
-      this.addConnection(conn.remotePeer.id.toB58String(), conn)
+      // this.addConnection(conn.remotePeer.id.toB58String(), conn)
     }
     return conn
   }

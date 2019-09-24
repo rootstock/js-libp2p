@@ -1,6 +1,6 @@
 'use strict'
 
-const MSS = require('it-multistream-select')
+const MSS = require('multistream-select')
 const debug = require('debug')
 const log = debug('dial')
 log.error = debug('error:dial')
@@ -19,9 +19,9 @@ async function multiplexOutbound (connection, muxers) {
   log('outbound selecting muxer %s', protocols)
   const { stream, protocol } = await dialer.select(protocols)
   log('%s selected as muxer protocol', protocol)
-  const muxer = muxers.get(protocol)
+  const Muxer = muxers.get(protocol)
 
-  if (stream) return stream
+  if (stream) return { stream, Muxer }
 
   throw new Error('All muxing failed')
 }
@@ -39,9 +39,9 @@ async function multiplexInbound (connection, muxers) {
   const protocols = Array.from(muxers.keys())
   log('inbound handling muxers %s', protocols)
   const { stream, protocol } = await listener.handle(protocols)
-  const muxer = muxers.get(protocol)
+  const Muxer = muxers.get(protocol)
 
-  if (stream) return stream
+  if (stream) return { stream, Muxer }
 
   throw new Error('All muxing failed')
 }

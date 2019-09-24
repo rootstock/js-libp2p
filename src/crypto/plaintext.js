@@ -5,6 +5,7 @@ const protocol = '/plaintext/2.0.0'
 const handshake = require('../util/to-reader-writer')
 const lp = require('it-length-prefixed')
 const pipe = require('it-pipe')
+const pair = require('it-pair/duplex')
 const PeerId = require('peer-id')
 const debug = require('debug')
 const log = debug('crypto:plaintext')
@@ -52,38 +53,39 @@ async function lpDecodeExchange (exchange) {
 async function encrypt (localId, conn, remoteId) {
   const { reader, writer, rest } = handshake(conn)
 
-    writer.push(lpEncodeExchange({
-      id: localId.toBytes(),
-      pubkey: {
-        Type: KeyType.RSA, // TODO: dont hard code
-        Data: localId.marshalPubKey()
-      }
-    }))
-    log('write pubkey exchange to peer %j', remoteId)
-
-    // Get the Exchange message
-    const response = await reader.next()
-    const id = await lpDecodeExchange(response.value)
-    log('read pubkey exchange from peer %j', remoteId)
-
-    if (!id || !id.pubkey) {
-      throw new Error('Remote did not provide their public key')
+  writer.push(lpEncodeExchange({
+    id: localId.toBytes(),
+    pubkey: {
+      Type: KeyType.RSA, // TODO: dont hard code
+      Data: localId.marshalPubKey()
     }
+  }))
 
-    const peerId = await PeerId.createFromPubKey(id.pubkey.Data)
+  log('write pubkey exchange to peer %j', remoteId)
 
-    if (remoteId && !peerId.isEqual(remoteId)) {
-      throw new Error('Remote peer id does not match known target id')
-    }
+  // Get the Exchange message
+  const response = await reader.next()
+  const id = await lpDecodeExchange(response.value)
+  log('read pubkey exchange from peer %j', remoteId)
 
-    log('crypto exchange completed successfully: %j', peerId)
+  if (!id || !id.pubkey) {
+    throw new Error('Remote did not provide their public key')
+  }
 
-    // End the writer to start the rest iterator
-    writer.end()
-    return {
-      conn: rest,
-      remotePeer: peerId
-    }
+  const peerId = await PeerId.createFromPubKey(id.pubkey.Data)
+
+  if (remoteId && !peerId.isEqual(remoteId)) {
+    throw new Error('Remote peer id does not match known target id')
+  }
+
+  log('crypto exchange completed successfully: %j', peerId)
+
+  // await new Promise(resolve => setTimeout(resolve, 0))
+  writer.end()
+  return {
+    conn: rest,
+    remotePeer: peerId
+  }
 }
 
 module.exports = {

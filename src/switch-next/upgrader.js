@@ -5,10 +5,10 @@ const {
   multiplexOutbound
 } = require('./multiplex')
 const { encryptInbound, encryptOutbound } = require('./encrypt')
-const multiaddr = require('multiaddr')
-const promisify = require('promisify-es6')
 const createFromB58String = require('peer-id').createFromB58String
+const pipe = require('it-pipe')
 const { Connection } = require('interface-connection')
+const MSS = require('multistream-select')
 const debug = require('debug')
 const log = debug('dial:upgrade')
 log.error = debug('error:dial:upgrade')
@@ -36,15 +36,15 @@ class Upgrader {
     this.localPeer = localPeer
     this.cryptos = cryptos
     this.muxers =  muxers
+    this.protocols = new Map()
   }
 
   /**
    *
    * @param {MultiaddrConnection} param0
    */
-  async upgradeOutbound ({ source, sink, conn, remoteAddr }) {
-    const connection = new Connection(remoteAddr, true)
-
+  async upgradeOutbound (maConn) {
+    const { source, sink, conn, remoteAddr } = maConn
     let remotePeerId
     try {
       remotePeerId = createFromB58String(remoteAddr.getPeerId())
@@ -52,38 +52,113 @@ class Upgrader {
       log.debug(err)
     }
 
-    const result = await encryptOutbound(this.localPeer.id, { source, sink }, remotePeerId, this.cryptos)
-    const muxer = await multiplexOutbound(result.conn, this.muxers)
+    const cryptoResult = await encryptOutbound(this.localPeer.id, { source, sink }, remotePeerId, this.cryptos)
+    await new Promise(resolve => setTimeout(resolve, 10))
+    const { stream, Muxer } = await multiplexOutbound(cryptoResult.conn, this.muxers)
 
-    connection.encryption = cryptoTag
-    connection.multiplexer = muxer
-    connection.remotePeer = remotePeer
-    // TODO: Do we keep a reference to the underlying connection?
-    // Ideally we'd be able to do everything through the muxer and have that
-    // tricke down to `conn`. If we don't have a muxer (unmuxed conns) we could
-    // wrap the conn in a pho muxer?
-    connection.conn = conn
+    const muxer = new Muxer({
+      onStream: async muxedStream => {
+        const mss = new MSS.Listener(muxedStream)
+        const { stream, protocol } = await mss.handle(this._protocols)
+        log('outbound: new stream requested %s', protocol)
+        connection.addStream(stream, protocol)
+        this._onStream({ stream, protocol })
+      },
+      onStreamEnd: muxedStream => {
+        connection.removeStream(muxedStream.id)
+      }
+    })
+
+    const newStream = async protocols => {
+      log('outbound: starting new stream on %s', protocols)
+      const muxedStream = muxer.newStream()
+      const mss = new MSS.Dialer(muxedStream)
+      const { stream, protocol } = await mss.select(protocols)
+      return { stream: { ...muxedStream, ...stream }, protocol }
+    }
+
+    pipe(stream, muxer, stream)
+
+    const connection = new Connection({
+      localAddr: maConn.localAddr,
+      remoteAddr,
+      localPeer: this.localPeer.id,
+      remotePeer: cryptoResult.remotePeer,
+      stat: {
+        direction: 'outbound',
+        timeline: {
+          open: maConn.timeline.open,
+          upgraded: Date.now(),
+        },
+        multiplexer: '/mplex/', // TODO: Actually set this
+        encryption: '/plaintext/' // TODO: Actually set this
+      },
+      newStream,
+      getStreams: () => muxer.streams,
+      close: err => maConn.close(err)
+    })
 
     return connection
   }
 
-  async upgradeInbound ({ source, sink, conn, remoteAddr }) {
-    const connection = new Connection(remoteAddr, true)
+  _onStream({ stream, protocol }) {
+    const handler = this.protocols.get(protocol)
+    handler(stream)
+  }
 
-    const result = await encryptInbound(this.localPeer.id, { source, sink }, this.cryptos)
+  async upgradeInbound (maConn) {
+    const { source, sink, conn, remoteAddr } = maConn
+    const cryptoResult = await encryptInbound(this.localPeer.id, { source, sink }, this.cryptos)
+    // await new Promise(resolve => setTimeout(resolve, 0))
+    const { stream, Muxer } = await multiplexInbound(cryptoResult.conn, this.muxers)
 
-    // TODO: Handle all muxer tags and wait for muxing to happen
-    const muxer = await multiplexInbound(result.conn, this.muxers)
+    // TODO: this is a test hack, the protocol should be set via `libp2p.handle`
+    // and we need to set/proxy to `this.protocols`
+    this.protocols.set('/echo/1.0.0', (stream) => {
+      pipe(stream, stream)
+    })
 
-    connection.encryption = cryptoTag
-    connection.multiplexer = muxer
-    connection.remotePeer = remotePeer
+    const muxer = new Muxer({
+      onStream: async muxedStream => {
+        const mss = new MSS.Listener(muxedStream)
+        const { stream, protocol } = await mss.handle([ '/echo/1.0.0' ])
+        log('inbound: new stream requested', protocol)
+        connection.addStream(stream, protocol)
+        this._onStream({ stream, protocol })
+      },
+      onStreamEnd: muxedStream => {
+        connection.removeStream(muxedStream.id)
+      }
+    })
 
-    // TODO: Do we keep a reference to the underlying connection?
-    // Ideally we'd be able to do everything through the muxer and have that
-    // trickle down to `conn`. If we don't have a muxer (unmuxed conns) we could
-    // wrap the conn in a pho muxer?
-    connection.conn = conn
+    const newStream = async protocols => {
+      log('inbound: starting new stream on %s', protocols)
+      const muxedStream = muxer.newStream()
+      const mss = new MSS.Dialer(muxedStream)
+      const { stream, protocol } = await mss.select(protocols)
+      return { stream: { conn, ...stream }, protocol }
+    }
+
+    pipe(stream, muxer, stream)
+
+    const connection = new Connection({
+      localAddr: maConn.localAddr,
+      remoteAddr,
+      localPeer: this.localPeer.id,
+      remotePeer: cryptoResult.remotePeer,
+      stat: {
+        direction: 'inbound',
+        timeline: {
+          open: maConn.timeline.open,
+          upgraded: Date.now(),
+        },
+        multiplexer: '/mplex/', // TODO: Actually set this
+        encryption: '/plaintext/' // TODO: Actually set this
+      },
+      newStream,
+      getStreams: () => muxer.streams,
+      close: err => maConn.close(err)
+    })
 
     return connection
   }

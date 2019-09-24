@@ -3,7 +3,7 @@
 const debug = require('debug')
 const log = debug('dial')
 log.error = debug('error:dial')
-const MSS = require('it-multistream-select')
+const MSS = require('multistream-select')
 
 /**
  * Attempts to encrypt the given `connection` with the provided `cryptos`.
@@ -21,13 +21,9 @@ async function encryptOutbound (localPeer, connection, remotePeerId, cryptos) {
   const { stream, protocol } = await mss.select(Array.from(cryptos.keys()))
   const crypto = cryptos.get(protocol)
   log('encrypting outbound connection to %s', remotePeerId.toB58String())
-  const { conn, remotePeer } = await crypto.secureOutbound(localPeer, stream, remotePeerId)
+  const cryptoResponse = await crypto.secureOutbound(localPeer, stream, remotePeerId)
 
-  if (conn) return {
-    conn,
-    remotePeer,
-    protocol
-  }
+  if (cryptoResponse) return cryptoResponse
 
   throw new Error('All encryption failed')
 }
@@ -47,13 +43,9 @@ async function encryptInbound (localPeer, connection, cryptos) {
   const { stream, protocol } = await mss.handle(Array.from(cryptos.keys()))
   const crypto = cryptos.get(protocol)
   log('encrypting inbound connection...')
-  const { conn, remotePeer } = await crypto.secureInbound(localPeer, stream)
+  const cryptoResponse = await crypto.secureInbound(localPeer, stream)
 
-  if (conn) return {
-    conn,
-    remotePeer,
-    protocol
-  }
+  if (cryptoResponse) return cryptoResponse
 
   throw new Error('All encryption failed')
 }
