@@ -5,7 +5,6 @@ const protocol = '/plaintext/2.0.0'
 const handshake = require('../util/to-reader-writer')
 const lp = require('it-length-prefixed')
 const pipe = require('it-pipe')
-const pair = require('it-pair/duplex')
 const PeerId = require('peer-id')
 const debug = require('debug')
 const log = debug('crypto:plaintext')
@@ -38,18 +37,6 @@ function lpEncodeExchange (exchange) {
   return lp.encode.single(pb)
 }
 
-async function lpDecodeExchange (exchange) {
-  return pipe(
-    [exchange],
-    lp.decode(),
-    async (source) => {
-      for await (const chunk of source) {
-        return Exchange.decode(chunk.slice())
-      }
-    }
-  )
-}
-
 async function encrypt (localId, conn, remoteId) {
   const { reader, writer, rest } = handshake(conn)
 
@@ -64,8 +51,8 @@ async function encrypt (localId, conn, remoteId) {
   log('write pubkey exchange to peer %j', remoteId)
 
   // Get the Exchange message
-  const response = await reader.next()
-  const id = await lpDecodeExchange(response.value)
+  const response = (await lp.decodeFromReader(reader).next()).value
+  const id = Exchange.decode(response.slice())
   log('read pubkey exchange from peer %j', remoteId)
 
   if (!id || !id.pubkey) {
@@ -80,7 +67,6 @@ async function encrypt (localId, conn, remoteId) {
 
   log('crypto exchange completed successfully: %j', peerId)
 
-  // await new Promise(resolve => setTimeout(resolve, 0))
   writer.end()
   return {
     conn: rest,

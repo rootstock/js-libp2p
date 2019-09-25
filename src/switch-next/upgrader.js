@@ -53,7 +53,6 @@ class Upgrader {
     }
 
     const cryptoResult = await encryptOutbound(this.localPeer.id, { source, sink }, remotePeerId, this.cryptos)
-    await new Promise(resolve => setTimeout(resolve, 10))
     const { stream, Muxer } = await multiplexOutbound(cryptoResult.conn, this.muxers)
 
     const muxer = new Muxer({
@@ -109,7 +108,6 @@ class Upgrader {
   async upgradeInbound (maConn) {
     const { source, sink, conn, remoteAddr } = maConn
     const cryptoResult = await encryptInbound(this.localPeer.id, { source, sink }, this.cryptos)
-    // await new Promise(resolve => setTimeout(resolve, 0))
     const { stream, Muxer } = await multiplexInbound(cryptoResult.conn, this.muxers)
 
     // TODO: this is a test hack, the protocol should be set via `libp2p.handle`
