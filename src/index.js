@@ -1,7 +1,7 @@
 'use strict'
 
 const FSM = require('fsm-event')
-const EventEmitter = require('events').EventEmitter
+const { EventEmitter } = require('events')
 const debug = require('debug')
 const log = debug('libp2p')
 log.error = debug('libp2p:error')
@@ -9,9 +9,7 @@ const errCode = require('err-code')
 const promisify = require('promisify-es6')
 
 const each = require('async/each')
-const nextTick = require('async/nextTick')
 
-const PeerBook = require('peer-book')
 const PeerInfo = require('peer-info')
 const multiaddr = require('multiaddr')
 const Switch = require('./switch')
@@ -29,6 +27,8 @@ const { codes } = require('./errors')
 const Dialer = require('./dialer')
 const TransportManager = require('./transport-manager')
 const Upgrader = require('./upgrader')
+const Registrar = require('./registrar')
+const PeerStore = require('./peer-store')
 
 const notStarted = (action, state) => {
   return errCode(
@@ -54,25 +54,31 @@ class Libp2p extends EventEmitter {
 
     this.datastore = this._options.datastore
     this.peerInfo = this._options.peerInfo
-    this.peerBook = this._options.peerBook || new PeerBook()
 
     this._modules = this._options.modules
     this._config = this._options.config
     this._transport = [] // Transport instances/references
     this._discovery = [] // Discovery service instances/references
 
+    this.peerStore = new PeerStore()
+
     // create the switch, and listen for errors
-    this._switch = new Switch(this.peerInfo, this.peerBook, this._options.switch)
+    this._switch = new Switch(this.peerInfo, this.peerStore, this._options.switch)
 
     // Setup the Upgrader
     this.upgrader = new Upgrader({
       localPeer: this.peerInfo.id,
       onConnection: (connection) => {
         const peerInfo = getPeerInfo(connection.remotePeer)
+
+        this.peerStore.put(peerInfo)
+        this.registrar.onConnect(peerInfo, connection)
         this.emit('peer:connect', peerInfo)
       },
       onConnectionEnd: (connection) => {
         const peerInfo = getPeerInfo(connection.remotePeer)
+
+        this.registrar.onDisconnect(peerInfo)
         this.emit('peer:disconnect', peerInfo)
       }
     })
@@ -106,6 +112,10 @@ class Libp2p extends EventEmitter {
       transportManager: this.transportManager
     })
 
+    this.registrar = new Registrar(this.peerStore)
+    this.handle = this.handle.bind(this)
+    this.registrar.handle = this.handle
+
     // Attach private network protector
     if (this._modules.connProtector) {
       this._switch.protector = this._modules.connProtector
@@ -124,7 +134,7 @@ class Libp2p extends EventEmitter {
     }
 
     // start pubsub
-    if (this._modules.pubsub && this._config.pubsub.enabled !== false) {
+    if (this._modules.pubsub) {
       this.pubsub = pubsub(this, this._modules.pubsub, this._config.pubsub)
     }
 
@@ -179,7 +189,7 @@ class Libp2p extends EventEmitter {
 
     // Once we start, emit and dial any peers we may have already discovered
     this.state.on('STARTED', () => {
-      this.peerBook.getAllArray().forEach((peerInfo) => {
+      this.peerStore.getAllArray().forEach((peerInfo) => {
         this.emit('peer:discovery', peerInfo)
         this._maybeConnect(peerInfo)
       })
@@ -228,6 +238,7 @@ class Libp2p extends EventEmitter {
     this.state('stop')
 
     try {
+      this.pubsub && await this.pubsub.stop()
       await this.transportManager.close()
       await this._switch.stop()
     } catch (err) {
@@ -245,7 +256,7 @@ class Libp2p extends EventEmitter {
 
   /**
    * Dials to the provided peer. If successful, the `PeerInfo` of the
-   * peer will be added to the nodes `PeerBook`
+   * peer will be added to the nodes `PeerStore`
    *
    * @param {PeerInfo|PeerId|Multiaddr|string} peer The peer to dial
    * @param {object} options
@@ -258,7 +269,7 @@ class Libp2p extends EventEmitter {
 
   /**
    * Dials to the provided peer and handshakes with the given protocol.
-   * If successful, the `PeerInfo` of the peer will be added to the nodes `PeerBook`,
+   * If successful, the `PeerInfo` of the peer will be added to the nodes `PeerStore`,
    * and the `Connection` will be sent in the callback
    *
    * @async
@@ -279,7 +290,13 @@ class Libp2p extends EventEmitter {
 
     // If a protocol was provided, create a new stream
     if (protocols) {
-      return connection.newStream(protocols)
+      const stream = await connection.newStream(protocols)
+      const peerInfo = getPeerInfo(connection.remotePeer)
+
+      peerInfo.protocols.add(stream.protocol)
+      this.peerStore.put(peerInfo)
+
+      return stream
     }
 
     return connection
@@ -350,10 +367,16 @@ class Libp2p extends EventEmitter {
     const multiaddrs = this.peerInfo.multiaddrs.toArray()
 
     // Start parallel tasks
+    const tasks = [
+      this.transportManager.listen(multiaddrs)
+    ]
+
+    if (this._config.pubsub.enabled) {
+      this.pubsub && this.pubsub.start()
+    }
+
     try {
-      await Promise.all([
-        this.transportManager.listen(multiaddrs)
-      ])
+      await Promise.all(tasks)
     } catch (err) {
       log.error(err)
       this.emit('error', err)
@@ -369,12 +392,6 @@ class Libp2p extends EventEmitter {
    * the `peer:discovery` event. If auto dial is enabled for libp2p
    * and the current connection count is under the low watermark, the
    * peer will be dialed.
-   *
-   * TODO: If `peerBook.put` becomes centralized, https://github.com/libp2p/js-libp2p/issues/345,
-   * it would be ideal if only new peers were emitted. Currently, with
-   * other modules adding peers to the `PeerBook` we have no way of knowing
-   * if a peer is new or not, so it has to be emitted.
-   *
    * @private
    * @param {PeerInfo} peerInfo
    */
@@ -383,7 +400,7 @@ class Libp2p extends EventEmitter {
       log.error(new Error(codes.ERR_DISCOVERED_SELF))
       return
     }
-    peerInfo = this.peerBook.put(peerInfo)
+    peerInfo = this.peerStore.put(peerInfo)
 
     if (!this.isStarted()) return
 
@@ -454,16 +471,15 @@ module.exports = Libp2p
  * Like `new Libp2p(options)` except it will create a `PeerInfo`
  * instance if one is not provided in options.
  * @param {object} options Libp2p configuration options
- * @param {function(Error, Libp2p)} callback
- * @returns {void}
+ * @returns {Libp2p}
  */
-module.exports.createLibp2p = promisify((options, callback) => {
+module.exports.create = async (options = {}) => {
   if (options.peerInfo) {
-    return nextTick(callback, null, new Libp2p(options))
+    return new Libp2p(options)
   }
-  PeerInfo.create((err, peerInfo) => {
-    if (err) return callback(err)
-    options.peerInfo = peerInfo
-    callback(null, new Libp2p(options))
-  })
-})
+
+  const peerInfo = await PeerInfo.create()
+
+  options.peerInfo = peerInfo
+  return new Libp2p(options)
+}
