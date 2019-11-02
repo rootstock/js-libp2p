@@ -81,7 +81,7 @@ class PeerStore extends EventEmitter {
 
     // Verify new multiaddrs
     // TODO: better track added and removed multiaddrs
-    if (peerInfo.multiaddrs.size) {
+    if (peerInfo.multiaddrs.size || recorded.multiaddrs.size) {
       recorded.multiaddrs = peerInfo.multiaddrs
 
       this.emit('change:multiaddrs', {
@@ -92,7 +92,7 @@ class PeerStore extends EventEmitter {
 
     // Update protocols
     // TODO: better track added and removed protocols
-    if (peerInfo.protocols.size) {
+    if (peerInfo.protocols.size || recorded.protocols.size) {
       recorded.protocols = new Set(peerInfo.protocols)
 
       this.emit('change:protocols', {
