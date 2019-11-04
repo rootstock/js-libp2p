@@ -109,7 +109,7 @@ describe('peer-store', () => {
     peerStore.on('change:multiaddrs', () => {
       throw new Error('should not emit change:multiaddrs')
     })
-    // When updating, "change:protocols" event must not be emitted
+    // When updating, "change:protocols" event must be emitted
     peerStore.on('change:protocols', ({ peerInfo, protocols }) => {
       expect(peerInfo).to.exist()
       expect(protocols).to.exist()
@@ -152,10 +152,11 @@ describe('peer-store', () => {
     // Put the peer in the store
     peerStore.put(peerInfo)
 
-    const peers = peerStore.getAllArray()
+    const peers = peerStore.peers.size
     expect(peers).to.have.lengthOf(1)
 
     removed = peerStore.remove(id)
     expect(removed).to.eql(true)
+    expect(peerStore.peers.size).to.equal(0)
   })
 })

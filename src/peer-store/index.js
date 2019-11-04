@@ -65,7 +65,6 @@ class PeerStore extends EventEmitter {
 
   /**
    * Updates an already known peer.
-   * If already exist, updates ids info if outdated.
    * @param {PeerInfo} peerInfo
    */
   update (peerInfo) {
@@ -131,7 +130,7 @@ class PeerStore extends EventEmitter {
   }
 
   /**
-   * Remove the info of the peer with the given id.
+   * Removes the Peer with the matching `peerId` from the PeerStore
    * @param {string} peerId b58str id
    * @returns {boolean} true if found and removed
    */
@@ -140,7 +139,7 @@ class PeerStore extends EventEmitter {
   }
 
   /**
-   * Replace the info stored of the given peer.
+   * Completely replaces the existing peers metadata with the given `peerInfo`
    * @param {PeerInfo} peerInfo
    * @returns {void}
    */
