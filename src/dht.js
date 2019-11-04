@@ -38,6 +38,18 @@ module.exports = (node) => {
       }
 
       node._dht.getMany(key, nVals, options, callback)
+    }),
+    sendMessage: promisify((key, value, partialAddressing, callback) => {
+      if (typeof options === 'function') {
+        callback = options
+        options = {}
+      }
+
+      if (!node._dht) {
+        return nextTick(callback, errCode(new Error(messages.DHT_DISABLED), codes.DHT_DISABLED))
+      }
+
+      node._dht.sendMessage(key, value, partialAddressing, callback)
     })
   }
 }
