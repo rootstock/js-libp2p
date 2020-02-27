@@ -7,14 +7,14 @@ const errCode = require('err-code')
 
 /**
  * Converts the given `peer` to a `PeerInfo` instance.
- * The `PeerBook` will be checked for the resulting peer, and
- * the peer will be updated in the `PeerBook`.
+ * The `PeerStore` will be checked for the resulting peer, and
+ * the peer will be updated in the `PeerStore`.
  *
  * @param {PeerInfo|PeerId|Multiaddr|string} peer
- * @param {PeerBook} peerBook
+ * @param {PeerStore} peerStore
  * @returns {PeerInfo}
  */
-function getPeerInfo (peer, peerBook) {
+function getPeerInfo (peer, peerStore) {
   if (typeof peer === 'string') {
     peer = multiaddr(peer)
   }
@@ -38,7 +38,7 @@ function getPeerInfo (peer, peerBook) {
 
   addr && peer.multiaddrs.add(addr)
 
-  return peerBook ? peerBook.put(peer) : peer
+  return peerStore ? peerStore.put(peer) : peer
 }
 
 /**
@@ -54,12 +54,9 @@ function getPeerInfoRemote (peer, libp2p) {
   let peerInfo
 
   try {
-    peerInfo = getPeerInfo(peer, libp2p.peerBook)
+    peerInfo = getPeerInfo(peer, libp2p.peerStore)
   } catch (err) {
-    return Promise.reject(errCode(
-      new Error(`${peer} is not a valid peer type`),
-      'ERR_INVALID_PEER_TYPE'
-    ))
+    throw errCode(err, 'ERR_INVALID_PEER_TYPE')
   }
 
   // If we don't have an address for the peer, attempt to find it
@@ -67,7 +64,7 @@ function getPeerInfoRemote (peer, libp2p) {
     return libp2p.peerRouting.findPeer(peerInfo.id)
   }
 
-  return Promise.resolve(peerInfo)
+  return peerInfo
 }
 
 module.exports = {
