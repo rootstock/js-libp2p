@@ -26,7 +26,7 @@ module.exports = (node) => {
      * @param {number} [options.maxNumProviders] - maximum number of providers to find
      * @returns {AsyncIterable<PeerInfo>}
      */
-    async * findProviders (key, options) {
+    async * findProviders(key, options) {
       if (!routers.length) {
         throw errCode(new Error('No content routers available'), 'NO_ROUTERS_AVAILABLE')
       }
@@ -54,7 +54,7 @@ module.exports = (node) => {
      * @param {CID} key The CID key of the content to find
      * @returns {Promise<void>}
      */
-    async provide (key) { // eslint-disable-line require-await
+    async provide(key) { // eslint-disable-line require-await
       if (!routers.length) {
         throw errCode(new Error('No content routers available'), 'NO_ROUTERS_AVAILABLE')
       }
@@ -70,7 +70,7 @@ module.exports = (node) => {
      * @param {number} [options.minPeers] - minimum number of peers required to successfully put
      * @returns {Promise<void>}
      */
-    async put (key, value, options) { // eslint-disable-line require-await
+    async put(key, value, options) { // eslint-disable-line require-await
       if (!node.isStarted() || !dht.isStarted) {
         throw errCode(new Error(messages.NOT_STARTED_YET), codes.DHT_NOT_STARTED)
       }
@@ -86,7 +86,7 @@ module.exports = (node) => {
      * @param {number} [options.timeout] - optional timeout (default: 60000)
      * @returns {Promise<{from: PeerId, val: Buffer}>}
      */
-    async get (key, options) { // eslint-disable-line require-await
+    async get(key, options) { // eslint-disable-line require-await
       if (!node.isStarted() || !dht.isStarted) {
         throw errCode(new Error(messages.NOT_STARTED_YET), codes.DHT_NOT_STARTED)
       }
@@ -102,12 +102,31 @@ module.exports = (node) => {
      * @param {number} [options.timeout] - optional timeout (default: 60000)
      * @returns {Promise<Array<{from: PeerId, val: Buffer}>>}
      */
-    async getMany (key, nVals, options) { // eslint-disable-line require-await
+    async getMany(key, nVals, options) { // eslint-disable-line require-await
       if (!node.isStarted() || !dht.isStarted) {
         throw errCode(new Error(messages.NOT_STARTED_YET), codes.DHT_NOT_STARTED)
       }
 
       return dht.getMany(key, nVals, options)
+    },
+
+    /**
+     * Forward a message to a recipient using dht forwarding to get to the final destination
+     * @param {string} userId - The id of the msg recipient
+     * @param {string} msgContent - The msg content to send
+     * @param {number} msgNonce - Order identifier for the mssage
+     * @param {boolean} partialAddressing - If true then the recipient address will be ofuscated before sending
+     * @returns {void}
+     */
+    async sendMessage(userId, msgContent, msgNonce, partialAddressing) { // eslint-disable-line require-await
+      if (!node.isStarted() || !dht.isStarted) {
+        throw errCode(new Error(messages.NOT_STARTED_YET), codes.DHT_NOT_STARTED)
+      }
+
+      dht.sendMessage(userId, msgContent, msgNonce, partialAddressing);
     }
+
+
+
   }
 }
